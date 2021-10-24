@@ -1,0 +1,13 @@
+change-log 22-07-2020
+by Thorbjørn
+
+Changed in code:
+
+* Added possibility of turning off encoder to counteract jittering at standstill
+* Added support for third signal
+
+
+Known bugs:
+
+* Some times it doesn't home properly
+* Turning the encoder on will cause jittering at standstill

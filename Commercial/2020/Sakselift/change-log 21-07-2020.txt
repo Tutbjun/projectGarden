@@ -1,0 +1,12 @@
+change-log 21-07-2020
+by Thorbjørn
+
+Changed in code:
+
+* Made functions out of repeating code (mostly moveTo)
+* Added position profiles with changable values
+* Changed the homing system to not depend on the magnetic switch
+
+Known bugs:
+
+* Some times it doesn't home properly
