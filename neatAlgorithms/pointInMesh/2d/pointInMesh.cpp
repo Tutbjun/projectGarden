@@ -12,7 +12,7 @@
 //TODO: triangleNRotMatricies badly populated
 
 //TODO:Exceptions 2 fix:
-//! terminate called after throwing an instance of 'std::bad_array_new_length'  what():  std::bad_array_new_length
+//! terminate called after throwing an instance of 'std::bad_array_new_length'\n  what():  std::bad_array_new_length
 //! error with no exception that happens in arround 1/100000 point findings ¯\_(ツ)_/¯
 
 //TODO: cleanup
