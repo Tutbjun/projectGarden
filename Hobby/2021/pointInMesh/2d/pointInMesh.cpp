@@ -229,8 +229,29 @@ class utils{
         float vectorAngle(vector<float> v1, vector<float> v2){
             return acosf(dotProduct(v1,v2)/(vectorLength(v1)*vectorLength(v2)));
         }
+        vector<vector<float>> transpose(vector<vector<float>> m){
+            vector<vector<float>> result;
+            vector<float> empty;
+            for (int i = 0; i < m[0].size(); i++){
+                result.push_back(empty);
+                for (int j = 0; j < m.size(); j++){
+                    result[i].push_back(m[j][i]);
+                }
+            }
+            return result;
+        }
+
         vector<vector<float>> matMatMul(vector<vector<float>> m1, vector<vector<float>> m2){
-            return vecMatMul(m1,m2);
+            vector<vector<float>> result;
+            vector<vector<float>> m2T = transpose(m2);
+            vector<float> empty;
+            for (int i = 0; i < m1.size(); i++){
+                result.push_back(empty);
+                for (int j = 0; j < m2T.size(); j++){
+                    result[i].push_back(dotProduct(m1[i],m2T[j]));
+                }
+            }
+            return result;
         }
 };
 
@@ -280,10 +301,6 @@ class meshPointRandomizer : public rawMesh {
         float triangleAreasSum;
         vector<vector<float>> triShifts;
         vector<vector<vector<float>>> rotMatricies;
-        vector<vector<float>> fliprotMatrix = {{-1,0},{0,-1}};
-        vector<vector<float>> fliprotPoints;
-        vector<vector<float>> fliprotLines;
-        vector<float> fliprotAs;
         vector<vector<vector<float>>> triangleTransformMatricies;
         vector<vector<vector<float>>> triangleNRotMatricies;
         
@@ -304,15 +321,44 @@ class meshPointRandomizer : public rawMesh {
             }
             divsGenerated = true;
         }
-        void genTransforms(){
+        void genTransforms(){//!Might be optimizable, but not critical
             for (int i = 0; i < triangles.size(); i++){
                 //shift transform
                 triShifts.push_back(verts[triangles[i][0]]);
+                //squeue transform
+                vector<vector<float>> targetVecs;//!may need a transposing?
+                util.print("\n\n");
+                targetVecs.push_back(util.subtractVectors(verts[triangles[i][1]],verts[triangles[i][0]]));
+                targetVecs.push_back(util.subtractVectors(verts[triangles[i][2]],verts[triangles[i][0]]));
+                util.print("targetVecs:");
+                util.print(targetVecs);
+
+                vector<vector<float>> startVecs = {{1,1},{0,1}};//!may need to be reversed
+                util.print("startVecs:");
+                util.print(startVecs);
+                vector<vector<float>> af = util.transpose(startVecs);//!not needed?
+                util.print("startVecsTransposed");
+                util.print(af);
+                af = util.invMatrix(af);
+                util.print("startVecsTransposedInverse");
+                util.print(af);
+                vector<vector<float>> bf = util.transpose(targetVecs);
+                util.print("targetVecsTransposed");
+                util.print(bf);
+                vector<vector<float>> tm = util.matMatMul(af,bf);
+                util.print("resultTransposed");
+                util.print(tm);
+                vector<vector<float>> matrix = util.transpose(tm);
+                util.print("result");
+                util.print(matrix);
+                triangleNRotMatricies.push_back(matrix);
+
+
                 //rotation transform
                 vector<vector<float>> lineVecs;
                 lineVecs.push_back(util.subtractVectors(verts[triangles[i][1]],verts[triangles[i][0]]));
                 lineVecs.push_back(util.subtractVectors(verts[triangles[i][2]],verts[triangles[i][0]]));
-                vector<float> tempAngles;
+                /* vector<float> tempAngles;
                 for (int i = 0; i < 2; i++){
                     tempAngles.push_back(atan(lineVecs[i][1]/lineVecs[i][0]));
                     while (tempAngles[i] > twoPi)
@@ -333,11 +379,6 @@ class meshPointRandomizer : public rawMesh {
                     invRotMatrix = util.multiplyVector(invRotMatrix,-1);
                 vector<vector<float>> rotMatrix = util.invMatrix(invRotMatrix);
                 rotMatricies.push_back(rotMatrix);
-                //folding transform line definition
-                foldingLine = util.vecMatMul(invRotMatrix,foldingLine);
-                fliprotLines.push_back(foldingLine);
-                fliprotPoints.push_back(util.divideVector(foldingLine,2));
-                fliprotAs.push_back(fliprotLines[i][1]/fliprotLines[i][0]);
                 //square 2 triangle transform
                 vector<vector<float>> refLinePoints;
                 refLinePoints.push_back(util.vecMatMul(invRotMatrix,lineVecs[0]));
@@ -348,14 +389,14 @@ class meshPointRandomizer : public rawMesh {
                 float scalerX = refLinePoints[1][0];
                 float shifter = scalerY-refLinePoints[1][1];
                 vector<vector<float>> triangleMatrix = {{scalerX,0},{-shifter,scalerY}};
-                triangleTransformMatricies.push_back(triangleMatrix);
+                triangleTransformMatricies.push_back(triangleMatrix); */
                 //find triangle areas
                 float a = util.vectorLength(lineVecs[0]);
                 float b = util.vectorLength(lineVecs[1]);
                 float triAngle = util.vectorAngle(lineVecs[0],lineVecs[1]);
                 float A = 0.5f*a*b*util.sin(triAngle);
                 triangleAreas.push_back(A);
-                triangleNRotMatricies.push_back(util.matMatMul(triangleTransformMatricies[i],rotMatricies[i]));
+                //triangleNRotMatricies.push_back(util.matMatMul(rotMatricies[i],triangleTransformMatricies[i]));
             }
             triangleAreasSum = util.sum(triangleAreas);
             transformsGenerated = true;
@@ -363,14 +404,7 @@ class meshPointRandomizer : public rawMesh {
         vector<float> performTransforms(vector<float> inPoint, int transformSet){
             if (inPoint[0] > inPoint[1])
                 swap(inPoint[0],inPoint[1]);
-            inPoint = util.vecMatMul(triangleTransformMatricies[transformSet],inPoint);//transform to triangle
-            /* if (point[0]*fliprotAs[transformSet] > point[1]){//flip if outside triangle
-                point = util.subtractVectors(point,fliprotPoints[transformSet]);
-                point = util.vecMatMul(fliprotMatrix,point);
-                point = util.addVectors(point,fliprotPoints[transformSet]);
-            } */
-            inPoint = util.vecMatMul(rotMatricies[transformSet],inPoint);//rotate to desired spot
-            //inPoint = util.vecMatMul(triangleNRotMatricies[transformSet],inPoint);//rotate to desired spot
+            inPoint = util.vecMatMul(triangleNRotMatricies[transformSet],inPoint);//rotate and scale to desired spot
             inPoint = util.addVectors(inPoint,triShifts[transformSet]);
             return inPoint;
         }
@@ -379,7 +413,7 @@ class meshPointRandomizer : public rawMesh {
                 genDivs();
             if (transformsGenerated == false)
                 genTransforms();
-
+            
             vector<float> randCartPoint;
             randCartPoint.push_back(util.randF());randCartPoint.push_back(util.randF());
 
