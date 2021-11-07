@@ -1,0 +1,1 @@
+g++ .\main.cpp .\thirdPartyLibs\pbPlots.cpp .\thirdPartyLibs\supportLib.cpp -std=c++20 -o .\pointInMesh.exe
