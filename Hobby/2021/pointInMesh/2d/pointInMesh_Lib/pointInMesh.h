@@ -37,7 +37,7 @@ class rawMesh{
         }
 };
 
-class meshPointRandomizer : public rawMesh{
+class smartMesh : public rawMesh{
     private:
         bool transformsGenerated = false;
         bool divsGenerated = false;
@@ -102,7 +102,7 @@ class meshPointRandomizer : public rawMesh{
         }
     public:
         std::vector<std::vector<int>> triangles;
-        meshPointRandomizer(rawMesh mesh){
+        smartMesh(rawMesh mesh){
             verts = mesh.verts;
             faces = mesh.faces;
         }
