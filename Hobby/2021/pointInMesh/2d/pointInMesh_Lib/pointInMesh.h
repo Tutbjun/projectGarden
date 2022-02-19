@@ -69,10 +69,37 @@ class smartMesh : public rawMesh{
             triangleAreasSum = sum(triangleAreas);
             transformsGenerated = true;
         }
+        void dividePolygon(std::vector<std::vector<float>> lverts, std::vector<std::vector<int>> lfaces){
+            bool divisionSucces = false;
+            for (int cornerToStart = 0; cornerToStart < lverts.size(); cornerToStart++){
+                for (int otherCorner = (cornerToStart + lverts.size()/2) % lverts.size(); otherCorner != cornerToStart; otherCorner = (otherCorner+1)%lverts.size()){
+                    std::vector<std::vector<float>> splitverts1;
+                    std::vector<std::vector<int>> splitfaces1;
+                    std::vector<std::vector<float>> splitverts2;
+                    std::vector<std::vector<int>> splitfaces2;
+                    ///define splitverts
+                    //check if any of the faces er facing wrong way
+                    //if not, divisionSucces = True, double break
+                }
+            }
+            if (divisionSucces){
+                //if len of faces are over 3, use dividePolygon()
+                
+            }
+        }
+
         void genDivs(){
-            std::vector<float> zero;
-            zero.push_back(0.5);zero.push_back(0.5);
-            verts.push_back(zero);
+            std::vector<float> origin;
+            //origin.push_back(0.5);origin.push_back(0.5);
+            //verts.push_back(origin);
+
+            //divide figure up into smaller figures until sidecount is 3
+            //meanwhile discard figures where any faces are outside faces
+            
+
+
+
+            origin = verts[0];
             for (int i = 0; i < faces.size(); i++){
                 std::vector<int> emptyI;
                 triangles.push_back(emptyI);
