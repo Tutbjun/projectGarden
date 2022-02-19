@@ -1,0 +1,1 @@
+g++ .\main.cpp .\pointInMesh_Lib\plottin\pbPlots.cpp .\pointInMesh_Lib\plottin\supportLib.cpp -std=c++20 -o .\pointInMesh.exe
