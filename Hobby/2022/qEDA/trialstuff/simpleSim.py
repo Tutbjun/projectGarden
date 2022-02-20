@@ -8,12 +8,16 @@ import UI
 import numpy as np
 from copy import copy
 
-#TODO: add more actionTensors
+#TODO: fix that nets have infinete recursions of itself
+#TODO: add log with warning of when the simulation needs smaller dt and make it so that sim redoes with smaller dt
+#TODO: fix the net reshaping order
+
 
 #config
 class config():
-    dt = 10**-6
-    bufferLen = 10**-4
+    dt = 10**-9
+    bufferCount = 100
+    dV = 10**-2
 
 class pseudoTensor():
     axis = ''
@@ -82,6 +86,12 @@ class pseudoTensor():
         except:
             return (*shp,*self.arr[0].shape())
         return shp
+    def multiplyBy(self,val):
+        for i,_ in enumerate(self.arr):
+            try:
+                self.arr[i] *= val
+            except:
+                self.arr[i].multiplyBy(val)
 
 def tensorMult(T1,T2):
     arr = T1.arr * T2
@@ -120,10 +130,13 @@ def tensorOpperation(T1, T2):
             return tensorMult(T1,T2)
         except:
             pass
-    if len(T1.arr) != len(T2.arr) or T1.axis == T2.axis:
+    if T1.axis == T2.axis:# or len(T1.arr) != len(T2.arr):
         raise ValueError
     for i in range(len(T1.arr)):
-        multList.append(tensorOpperation(T1.arr[i],T2.arr[i]))
+        if len(T2.arr) == 1:
+            multList.append(tensorOpperation(T1.arr[i],T2.arr[0]))
+        else:
+            multList.append(tensorOpperation(T1.arr[i],T2.arr[i]))
     if T1.axis == 'x':
         return tensorSum(multList)
     elif T1.axis == 'y':
@@ -137,10 +150,13 @@ class circuitSim():
     nets = {}
     _newNetsSchedule = {'latestComp' : False}
     def __init__(self):
-        self.bufferCount = int(config.bufferLen/config.dt)
+        self.bufferCount = config.bufferCount
 
-    def addComponent(self, type, pos = (0,0)):
-        self.components.append(type(pos = pos))
+    def addComponent(self, type, pos = (0,0), model = None):
+        if model:
+            self.components.append(type(pos = pos, model = model))
+        else:
+            self.components.append(type(pos = pos))
         self._updateAll()#will in this case create new nets for all pins
 
     def renderCircuit(self):
@@ -174,34 +190,48 @@ class circuitSim():
         for n in toMerge:
             if n != newNet.id:
                 self.nets.pop(n)
+    def renameNet(self,start,target):
+        if start != target:
+            self.nets[target] = self.nets[start]
+            for i in range(len(self.components)):
+                for j in range(len(self.components[i].connections)):
+                    if self.components[i].connections[j] == start:
+                        self.components[i].connections[j] = target
+            del self.nets[start]
+            self.nets[target].id = target
     def addConnection(self,componentConnections):
         netsToMerge = []
         for cc in componentConnections:
             netId = self.components[cc[0]].connections[cc[1]]
             netsToMerge.append(netId)
         self.mergeNets(netsToMerge, componentConnections)
+        keys = list(self.nets.keys())
+        for i,k in enumerate(keys):
+            self.renameNet(k,i)
     def simulate(self,simTime):
-        dt = config.dt
         t = 0
         while t < simTime:
-            #t = step*dt
             nT = self.prepNetTensor()#netTensor
-            ncTs = pseudoTensor(['y'],[0]*len(nT.arr))#netCurrentTensors
+            ncTs = pseudoTensor(['y'],np.asarray([0]*len(nT.arr[0].arr),dtype=np.float32))#netCurrentTensors
             for c in self.components:
-                nTC = pseudoTensor(['y'],nT.arr[c.connections])#netTensorComponent
+                nTC = pseudoTensor(['x','y'],[nT.arr[0].arr[c.connections]])#netTensorComponent
                 change = tensorOpperation(c.actionTensor,nTC)
                 for i,old in enumerate(ncTs.arr[c.connections]):
-                    ncTs.arr[c.connections][i] = tensorSum([old,change.arr[i]])
-            for i in range(len(ncTs.arr)):
-                #TODO calc a dt in relationship to net capacitances
-                #TODO add dt*I charges to nets
-                #TODO from all capacitances in net, calc a voltage increase
-                #TODO add the voltage derivative to the net tensor
-                raise NotImplementedError
-                ncTs.arr[i].arr[1] = (ncTs.arr[i].arr[0] - nT.arr[i].arr[0].arr[1].arr[0]) / dt
-            for ncT in ncTs:
-                raise NotImplementedError
-                self.updateNetsByVector(ncT)
+                    j = c.connections[i]
+                    ncTs.arr[j] = tensorSum([old,change.arr[i]])
+            Cs = np.asarray([self.nets[k]._capacitance for k in self.nets.keys()])
+            for c in self.components:
+                for i,j in enumerate(c.connections):
+                    Cs[j] += c.pinCapacitances[i]
+            dVdts = ncTs.arr/Cs
+            dVs = config.dt*dVdts
+            if max(abs(dVs)) > config.dV:
+                #!log issue
+                #! or redo sim with smaller dt
+                print("max dV exceeded...")
+            for i,dV in enumerate(dVs):
+                self.nets[i].updateBufferWithV(dV)
+            t += config.dt
     def getNetTensor(self):
         arr = np.zeros((len(self.nets.keys()),self.bufferCount,2))
         for i,k in enumerate(self.nets.keys()):
@@ -209,15 +239,15 @@ class circuitSim():
             for j in range(self.bufferCount):
                 arr[i][j] = n.stateBuffer[j].asarray()
         shape = arr.shape
-        arr = np.reshape(arr,(shape[0],shape[2],shape[1]))
+        arr = np.reshape(arr,(1,shape[0],shape[2],shape[1]))#!Fix reshaping here
         return arr
     def prepNetTensor(self):
         nets = self.getNetTensor()
-        newTensor = pseudoTensor(['y','x','y','y'],shape=(len(self.nets),1,6,self.bufferCount))
-        for i,n in enumerate(nets):
+        newTensor = pseudoTensor(['x','y','y','y'],shape=(1,len(self.nets),6,self.bufferCount))
+        for i,n in enumerate(nets[0]):
             for j in range(3):
-                newTensor.arr[i].arr[0].arr[j].arr = np.power(n[0],j)
-                newTensor.arr[i].arr[0].arr[j+3].arr = np.power(n[0],j)
+                newTensor.arr[0].arr[i].arr[j].arr = np.power(n[0],j)
+                newTensor.arr[0].arr[i].arr[j+3].arr = np.power(n[0],j)
         return newTensor
     def updateNetsByVector():
         return
@@ -234,28 +264,32 @@ class circuitSim():
         
 
 class component(circuitSim):
+    #pinCapacitances = []
     rotation = 0
     pinCount = 0
     scale = (1,1)
     _ogPinPositions = []
     pinPositions = []
     actionTensor = np.array([])
-    _compImg = Image.open(path.join(path.dirname(__file__),"defaultIcon.jpg"))
+    _compImg = Image.open(path.join(path.dirname(__file__),"componentIcons","defaultIcon.jpg"))
     icon = 0
     pos = (0,0)
     connections = []
-    def __init__(self, pos, pinCount, imgN, scale, pinPositions = []):
+    def __init__(self, pos, pinCount, imgN, scale, modelName, pinCapacitances, pinPositions = []):
         self.pos = pos
         self.pinCount = pinCount
         self.scale = scale
         try:
-            self._compImg = Image.open(path.join(path.dirname(__file__),imgN))
-        except:
-            pass
+            self._compImg = Image.open(path.join(path.dirname(__file__),"componentIcons",imgN))
+        except FileNotFoundError:
+            print("Component icon not found...")
         self._ogPinPositions = pinPositions
+        if len(pinCapacitances) == self.pinCount:
+            self.pinCapacitances = pinCapacitances
         self._updateIcon()
         self._updatePinPos()
         self._initPinNets()
+        self._loadModelTensor(modelName)
     def _initPinNets(self):
         self.connections = [None for _ in range(self.pinCount)]
         super()._scheduleNewNets(mode = 'latestComp')
@@ -278,6 +312,9 @@ class component(circuitSim):
         self.rotation -= rot
         self._updatePinPos()
         self._updateIcon()
+    def _loadModelTensor(self,name):
+        self.actionTensor = np.load(path.join(path.dirname(__file__),'componentModels',f'{name}.npy'))#TODO: should return a current which is zeroth order minus first order
+        self.actionTensor = pseudoTensor(['y','x','x','x'],self.actionTensor)
 
 class netState():
     voltage = 0
@@ -304,105 +341,91 @@ class net(circuitSim):
         self.id = len(takenIds)
         self.stateBuffer = np.full((bufferCount),netState())
 
+    def updateBufferWithV(self,dV,dt=config.dt):
+        V = self.stateBuffer[0].voltage + dV
+        dVdt = dV/dt
+        nS = netState(V,dVdt)
+        self.stateBuffer = np.insert(self.stateBuffer,0,nS)[:-1]
+
     def cleanBuffer(self):
         for i in range(len(self.stateBuffer),self.bufferCount,-1):
             self.stateBuffer[i].pop(i)
 
 class opamp(component,circuitSim):
-    def __init__(self, scale=(10,10), pos=(50,50)):
+    def __init__(self, scale=(10,10), pos=(50,50), model = None):
         super().__init__(
             pos, 
             5,
             "opAmpIcon.png", 
-            scale, 
+            scale,
+            model,
+            pinCapacitances=[],
             pinPositions = [(0.45,0),(-0.01,0.315),(0,-0.33),(-0.5,0.25),(-0.5,-0.25)]
             )
 
 class resistor(component,circuitSim):
-    def __init__(self, scale=(3,3), pos=(0,0)):
+    def __init__(self, scale=(3,3), pos=(0,0), model = 'res1k'):
         super().__init__(
             pos, 
             2,
             "resistor.png", 
             scale,
+            model,
+            pinCapacitances=[0,0],
             pinPositions = [(-0.5,0),(0.5,0)]
             )
 
 class supply(component,circuitSim):
-    _voltage = 0
     _maxCurrent = 0
-    def __init__(self, scale=(2,2), pos=(0,0)):
+    def __init__(self, scale=(2,2), pos=(0,0), model = "supply0v"):#make a more advanced with constant current input by a square wave
         super().__init__(
             pos, 
             1,
             "supply.png", 
             scale,
+            model,
+            pinCapacitances=[10*(10**(-6))],
             pinPositions = [(0.5,0)]
             )
-    def setSpecs(self,voltage,current):
-        self._voltage = voltage
-        self._current = current
-        self.actionTensor = np.load(path.join(path.dirname(__file__),'Supply.npy'))#TODO: should return a current which is zeroth order minus first order
-        self.actionTensor *= voltage
-        self.actionTensor = pseudoTensor(['x','y','x','x'],self.actionTensor)
 
 class caps(component):
     capacitance = 1
-    def __init__(self, scale=(3,3), pos=(0,0)):
+    def __init__(self, scale=(3,3), pos=(0,0), model = 'cap'):
         super().__init__(
             pos, 
             2,
             "cCap.png", 
             scale,
+            model,
+            pinCapacitances=[100*(10**(-6)),100*(10**(-6))],
             pinPositions = [(-0.5,0),(0.5,0)]
             )
 
 class eCap(caps):
-    def __init__(self, pos=(0,0)):
-        super().__init__(pos = pos)
+    def __init__(self, pos=(0,0), model = None):
+        super().__init__(pos = pos, model = model)
 
 class cCap(caps):
-    def __init__(self, pos=(0,0)):
-        super().__init__(pos = pos)
+    def __init__(self, pos=(0,0), model = None):
+        super().__init__(pos = pos, model = model)
 
 def main():
     c = circuitSim()
-    c.addComponent(supply, pos = (15,5))
-    c.components[0].rotateBy(90)
-    c.components[0].setVoltage(9)
-    c.addComponent(resistor, pos = (15,10))
-    c.components[1].rotateBy(90)
-    c.components[1].resistance = 1000
-    c.addComponent(cCap, pos = (15,20))
-    c.components[2].rotateBy(90)
-    c.components[2].capacitance = 10**(-5)
-    c.addComponent(supply, pos = (15,25))
-    c.components[3].rotateBy(-90)
-    c.components[3].voltage = 0
+    c.addComponent(supply, pos = (15,5), model='supply9V')
+    c.components[-1].rotateBy(90)
+    c.addComponent(resistor, pos = (15,10), model='res1k')
+    c.components[-1].rotateBy(90)
+    c.components[-1].resistance = 1000
+    #c.addComponent(cCap, pos = (15,20), model='cap')
+    #c.components[2].rotateBy(90)
+    #c.components[2].capacitance = 10**(-5)
+    c.addComponent(supply, pos = (15,25), model='supply0V')
+    c.components[-1].rotateBy(-90)
     c.addConnection([[0,0],[1,0]])
     c.addConnection([[1,1],[2,0]])
-    c.addConnection([[2,1],[3,0]])
-
-    """c.addComponent(opamp, pos = (15,10))
-    c.addComponent(resistor,pos = (45,10))
-    c.addComponent(supply, pos = (14,5))
-    c.addConnection([[0,0],[0,1]])
-    c.addConnection([[0,0],[1,0]])
-    c.addConnection([[2,0],[0,2]])"""
+    #c.addConnection([[2,1],[3,0]])
     c.renderCircuit()
     c.simulate(0.01)
-    
-
-
-#klasse component
-    #antal pins - done
-    #timedependant on function buffer
-    #tidsfunktionkatalog - done
-    #billede - done
-    #netforbindelser - done
-    #onstate function for alle ben
-    #buffer fill - buffer perform - buffer cleanup, for loop
 
 if __name__ == '__main__':
-    main()
-        
+    main()        

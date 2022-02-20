@@ -22,7 +22,7 @@
 from os import path
 import numpy as np
 
-fileName = 'Supply'
+fileName = 'cap'
 bufferCount = 100
 pinCount = 1
 
@@ -38,8 +38,14 @@ def main():
     for i in range(len(arr)):
         for j in range(len(arr[0])):
             for k in range(len(arr[0][0])):
-                mult = input(f'Multiply {i}x{j}x{k} by: ')
-                arr[i][j][k] *= float(mult)
+                success = False
+                while not success:
+                    mult = input(f'Multiply {i}x{j}x{k} by: ')
+                    try:
+                        arr[i][j][k] *= float(mult)
+                        success = True
+                    except:
+                        pass
     np.save(path.join(path.dirname(__file__),f'{fileName}'),arr)
 
 if __name__ == '__main__':
