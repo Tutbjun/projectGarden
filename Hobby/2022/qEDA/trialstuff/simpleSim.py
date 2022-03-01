@@ -1,23 +1,23 @@
 import enum
 from genericpath import exists
 from re import T
+import time
 from PIL import Image,ImageTk
 import math
 from os import path
 import UI
 import numpy as np
-from copy import copy
+from copy import copy , deepcopy
 
 #TODO: fix that nets have infinete recursions of itself
 #TODO: add log with warning of when the simulation needs smaller dt and make it so that sim redoes with smaller dt
-#TODO: fix the net reshaping order
 
 
 #config
 class config():
-    dt = 10**-9
+    dt = 5*10**-8
     bufferCount = 100
-    dV = 10**-2
+    dV = 10**-1
 
 class pseudoTensor():
     axis = ''
@@ -57,7 +57,7 @@ class pseudoTensor():
                 
             tempArr = []
             for _ in range(shape[0]):
-                tempArr.append(copy(arrElem))
+                tempArr.append(deepcopy(arrElem))
                 """elemIsInt = False
                 try:
                     int(arrElem)
@@ -68,7 +68,7 @@ class pseudoTensor():
                     tempArr.append()
                 else:
                 """    
-            self.arr = np.asarray(tempArr)
+            self.arr = np.asarray(tempArr).copy()
             self.axis = axi[0].lower()
         else:
             if arrayLike == None:
@@ -210,28 +210,52 @@ class circuitSim():
             self.renameNet(k,i)
     def simulate(self,simTime):
         t = 0
+        timerAvgs = []
         while t < simTime:
-            nT = self.prepNetTensor()#netTensor
+            #print([e.statePrint() for e in self.nets.values()])
+            timer = np.zeros(11)
+            timer[0] = time.time()
+            nT = self.prepNetTensor()#netTensor#! improve time
+            timer[1] = time.time()
             ncTs = pseudoTensor(['y'],np.asarray([0]*len(nT.arr[0].arr),dtype=np.float32))#netCurrentTensors
-            for c in self.components:
+            timer[2] = time.time()
+            for c in self.components:#!improve time
+                timer2 = np.zeros(4)
+                timer2[0] = time.time()
                 nTC = pseudoTensor(['x','y'],[nT.arr[0].arr[c.connections]])#netTensorComponent
+                timer2[1] = time.time()
                 change = tensorOpperation(c.actionTensor,nTC)
+                timer2[2] = time.time()
                 for i,old in enumerate(ncTs.arr[c.connections]):
                     j = c.connections[i]
                     ncTs.arr[j] = tensorSum([old,change.arr[i]])
+                timer2[3] = time.time()
+                df = np.diff(timer2)
+                print(df)
+            timer[3] = time.time()
             Cs = np.asarray([self.nets[k]._capacitance for k in self.nets.keys()])
+            timer[4] = time.time()
             for c in self.components:
                 for i,j in enumerate(c.connections):
                     Cs[j] += c.pinCapacitances[i]
+            timer[5] = time.time()
             dVdts = ncTs.arr/Cs
+            timer[6] = time.time()
             dVs = config.dt*dVdts
+            timer[7] = time.time()
             if max(abs(dVs)) > config.dV:
                 #!log issue
                 #! or redo sim with smaller dt
                 print("max dV exceeded...")
+            timer[8] = time.time()
             for i,dV in enumerate(dVs):
                 self.nets[i].updateBufferWithV(dV)
+            timer[9] = time.time()
             t += config.dt
+            timer[10] = time.time()
+            df = np.diff(timer)
+            timerAvgs.append(df)
+            print(np.mean(np.asarray(timerAvgs), axis=0))
     def getNetTensor(self):
         arr = np.zeros((len(self.nets.keys()),self.bufferCount,2))
         for i,k in enumerate(self.nets.keys()):
@@ -239,7 +263,11 @@ class circuitSim():
             for j in range(self.bufferCount):
                 arr[i][j] = n.stateBuffer[j].asarray()
         shape = arr.shape
-        arr = np.reshape(arr,(1,shape[0],shape[2],shape[1]))#!Fix reshaping here
+        newArr = list(arr)
+        for i in range(len(arr)):
+            newArr[i] = np.transpose(arr[i])
+        arr = np.asarray(newArr)
+        arr = np.reshape(arr,(1,shape[0],shape[2],shape[1]))
         return arr
     def prepNetTensor(self):
         nets = self.getNetTensor()
@@ -247,7 +275,7 @@ class circuitSim():
         for i,n in enumerate(nets[0]):
             for j in range(3):
                 newTensor.arr[0].arr[i].arr[j].arr = np.power(n[0],j)
-                newTensor.arr[0].arr[i].arr[j+3].arr = np.power(n[0],j)
+                newTensor.arr[0].arr[i].arr[j+3].arr = np.power(n[1],j)
         return newTensor
     def updateNetsByVector():
         return
@@ -313,7 +341,7 @@ class component(circuitSim):
         self._updatePinPos()
         self._updateIcon()
     def _loadModelTensor(self,name):
-        self.actionTensor = np.load(path.join(path.dirname(__file__),'componentModels',f'{name}.npy'))#TODO: should return a current which is zeroth order minus first order
+        self.actionTensor = np.load(path.join(path.dirname(__file__),'componentModels',f'{name}.npy'))
         self.actionTensor = pseudoTensor(['y','x','x','x'],self.actionTensor)
 
 class netState():
@@ -350,6 +378,15 @@ class net(circuitSim):
     def cleanBuffer(self):
         for i in range(len(self.stateBuffer),self.bufferCount,-1):
             self.stateBuffer[i].pop(i)
+
+    def statePrint(self):
+        vals = []
+        vals.append(self.stateBuffer[0].voltage)
+        vals.append(self.stateBuffer[0].dVoltage)
+        vals = ['{:.10f}'.format(round(v,10)) for v in vals]
+        vals[0] = f'{vals[0]}V'
+        vals[1] = f'{vals[1]}V/s'
+        return vals
 
 class opamp(component,circuitSim):
     def __init__(self, scale=(10,10), pos=(50,50), model = None):
