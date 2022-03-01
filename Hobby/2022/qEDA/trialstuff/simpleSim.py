@@ -5,9 +5,12 @@ import time
 from PIL import Image,ImageTk
 import math
 from os import path
+import collections
+
 import UI
 import numpy as np
 from copy import copy , deepcopy
+from numba import jit
 
 #TODO: fix that nets have infinete recursions of itself
 #TODO: add log with warning of when the simulation needs smaller dt and make it so that sim redoes with smaller dt
@@ -19,7 +22,37 @@ class config():
     bufferCount = 100
     dV = 10**-1
 
-class pseudoTensor():
+def tensorConstr(axi, arrayLike = None, shape = None):
+    #timer = np.zeros(11)
+    #timer[0] = time.time()
+    t = tensor(axi, arrayLike, shape)
+    #timer[1] = time.time()
+    if hasattr(t.arr, "__len__"):
+        #timer[2] = time.time()
+        return t
+    else:
+        #timer[2] = time.time()
+        return t.arr
+
+class tensor():
+    axi = ''
+    arr = []
+    shape = ()
+    def __init__(self, axi, arrayLike = None, shape = None):
+        if shape:
+            self.arr = np.zeros(shape)
+        elif str(type(arrayLike)) != "<class 'NoneType'>":
+            try:
+                float(arrayLike)
+                self.arr = arrayLike
+            except:
+                self.arr = np.asarray(arrayLike)
+        if len(self.arr.shape) != len(axi):
+            raise ValueError
+        self.axi = axi
+        self.shape = self.arr.shape
+
+"""class pseudoTensor():
     axis = ''
     arr = np.array([])
     def __init__(self, axi, arrayLike = None, shape = None):
@@ -58,16 +91,6 @@ class pseudoTensor():
             tempArr = []
             for _ in range(shape[0]):
                 tempArr.append(deepcopy(arrElem))
-                """elemIsInt = False
-                try:
-                    int(arrElem)
-                    elemIsInt = True    
-                except:
-                    pass
-                if elemIsInt:
-                    tempArr.append()
-                else:
-                """    
             self.arr = np.asarray(tempArr).copy()
             self.axis = axi[0].lower()
         else:
@@ -91,11 +114,29 @@ class pseudoTensor():
             try:
                 self.arr[i] *= val
             except:
-                self.arr[i].multiplyBy(val)
+                self.arr[i].multiplyBy(val)"""
 
 def tensorMult(T1,T2):
     arr = T1.arr * T2
-    return pseudoTensor([T1.axis],arr)
+    return tensorConstr(T1.axi[0],arr)
+
+"""def pseudoTensorSum(tensorList):
+    inIsFloat = False
+    try:
+        float(tensorList[0])
+        inIsFloat = True
+    except:
+        pass
+    if inIsFloat:
+        return np.sum(tensorList)
+    else:
+        if len(tensorList) == 1:
+            return tensorList[0]
+        shp = tensorList[0].shape()
+        sumArr = np.zeros((len(tensorList),*shp))
+        for i in range(0,len(tensorList)):
+            sumArr[i] = tensorList[i].arr
+        return sumArr.sum(axis=0)"""
 
 def tensorSum(tensorList):
     inIsFloat = False
@@ -115,7 +156,41 @@ def tensorSum(tensorList):
             sumArr[i] = tensorList[i].arr
         return sumArr.sum(axis=0)
 
-def tensorOpperation(T1, T2):
+def tensorOpperation(T1,T2):
+    #timer = np.zeros(11)
+    #timer[0] = time.time()
+    try:
+        float(T1)
+        try:
+            float(T2)
+            return T2*T1
+        except:
+            return tensorMult(T2,T1)
+    except:
+        try:
+            float(T2)
+            return tensorMult(T1,T2)
+        except:
+            pass
+    #timer[1] = time.time()
+    multList = [0]*T1.shape[0]
+    #timer[2] = time.time()
+    for i in range(len(T1.arr)):
+        if len(T2.arr) == 1:
+            multList[i] = tensorOpperation(tensorConstr(T1.axi[1:],T1.arr[i]),tensorConstr(T2.axi[1:],T2.arr[0]))
+        else:
+            multList[i] = tensorOpperation(tensorConstr(T1.axi[1:],T1.arr[i]),tensorConstr(T2.axi[1:],T2.arr[i]))
+    #timer[3] = time.time()
+    if T1.axi[0] == 'x':
+        return tensorSum(multList)
+    elif T1.axi[0] == 'y':
+        try:
+            multList[0].axi
+            return tensorConstr('y'+multList[0].axi,multList)
+        except:
+            return tensorConstr('y',multList)
+
+"""def pseudoTensorOpperation(T1, T2):
     multList = []
     try:
         float(T1)
@@ -134,15 +209,15 @@ def tensorOpperation(T1, T2):
         raise ValueError
     for i in range(len(T1.arr)):
         if len(T2.arr) == 1:
-            multList.append(tensorOpperation(T1.arr[i],T2.arr[0]))
+            multList.append(pseudoTensorOpperation(T1.arr[i],T2.arr[0]))
         else:
-            multList.append(tensorOpperation(T1.arr[i],T2.arr[i]))
+            multList.append(pseudoTensorOpperation(T1.arr[i],T2.arr[i]))
     if T1.axis == 'x':
-        return tensorSum(multList)
+        return pseudoTensorSum(multList)
     elif T1.axis == 'y':
         return pseudoTensor(['y'],multList)
     else:
-        raise ValueError
+        raise ValueError"""
 
 
 class circuitSim():
@@ -210,52 +285,52 @@ class circuitSim():
             self.renameNet(k,i)
     def simulate(self,simTime):
         t = 0
-        timerAvgs = []
+        #timerAvgs = []
         while t < simTime:
-            #print([e.statePrint() for e in self.nets.values()])
-            timer = np.zeros(11)
-            timer[0] = time.time()
+            print([e.statePrint() for e in self.nets.values()])
+            #timer = np.zeros(11)
+            #timer[0] = time.time()
             nT = self.prepNetTensor()#netTensor#! improve time
-            timer[1] = time.time()
-            ncTs = pseudoTensor(['y'],np.asarray([0]*len(nT.arr[0].arr),dtype=np.float32))#netCurrentTensors
-            timer[2] = time.time()
+            #timer[1] = time.time()
+            ncTs = tensorConstr('y',np.zeros(len(nT.arr[0]),dtype=np.float32))#netCurrentTensors
+            #timer[2] = time.time()
             for c in self.components:#!improve time
-                timer2 = np.zeros(4)
-                timer2[0] = time.time()
-                nTC = pseudoTensor(['x','y'],[nT.arr[0].arr[c.connections]])#netTensorComponent
-                timer2[1] = time.time()
-                change = tensorOpperation(c.actionTensor,nTC)
-                timer2[2] = time.time()
+                #timer2 = np.zeros(4)
+                #timer2[0] = time.time()
+                nTC = tensorConstr('xy'+nT.axi[2:],[nT.arr[0][c.connections]])#netTensorComponent
+                #timer2[1] = time.time()
+                change = tensorOpperation(c.actionTensor,nTC)#! improve time
+                #timer2[2] = time.time()
                 for i,old in enumerate(ncTs.arr[c.connections]):
                     j = c.connections[i]
                     ncTs.arr[j] = tensorSum([old,change.arr[i]])
-                timer2[3] = time.time()
-                df = np.diff(timer2)
-                print(df)
-            timer[3] = time.time()
+                #timer2[3] = time.time()
+                #df = np.diff(timer2)
+                #print(df)
+            #timer[3] = time.time()
             Cs = np.asarray([self.nets[k]._capacitance for k in self.nets.keys()])
-            timer[4] = time.time()
+            #timer[4] = time.time()
             for c in self.components:
                 for i,j in enumerate(c.connections):
                     Cs[j] += c.pinCapacitances[i]
-            timer[5] = time.time()
+            #timer[5] = time.time()
             dVdts = ncTs.arr/Cs
-            timer[6] = time.time()
+            #timer[6] = time.time()
             dVs = config.dt*dVdts
-            timer[7] = time.time()
+            #timer[7] = time.time()
             if max(abs(dVs)) > config.dV:
                 #!log issue
                 #! or redo sim with smaller dt
                 print("max dV exceeded...")
-            timer[8] = time.time()
+            #timer[8] = time.time()
             for i,dV in enumerate(dVs):
                 self.nets[i].updateBufferWithV(dV)
-            timer[9] = time.time()
+            #timer[9] = time.time()
             t += config.dt
-            timer[10] = time.time()
-            df = np.diff(timer)
-            timerAvgs.append(df)
-            print(np.mean(np.asarray(timerAvgs), axis=0))
+            #timer[10] = time.time()
+            #df = np.diff(timer)
+            #timerAvgs.append(df)
+            #print(np.mean(np.asarray(timerAvgs), axis=0))
     def getNetTensor(self):
         arr = np.zeros((len(self.nets.keys()),self.bufferCount,2))
         for i,k in enumerate(self.nets.keys()):
@@ -271,11 +346,11 @@ class circuitSim():
         return arr
     def prepNetTensor(self):
         nets = self.getNetTensor()
-        newTensor = pseudoTensor(['x','y','y','y'],shape=(1,len(self.nets),6,self.bufferCount))
+        newTensor = tensorConstr('xyyy',shape=(1,len(self.nets),6,self.bufferCount))
         for i,n in enumerate(nets[0]):
             for j in range(3):
-                newTensor.arr[0].arr[i].arr[j].arr = np.power(n[0],j)
-                newTensor.arr[0].arr[i].arr[j+3].arr = np.power(n[1],j)
+                newTensor.arr[0][i][j] = np.power(n[0],j)
+                newTensor.arr[0][i][j+3] = np.power(n[1],j)
         return newTensor
     def updateNetsByVector():
         return
@@ -342,7 +417,7 @@ class component(circuitSim):
         self._updateIcon()
     def _loadModelTensor(self,name):
         self.actionTensor = np.load(path.join(path.dirname(__file__),'componentModels',f'{name}.npy'))
-        self.actionTensor = pseudoTensor(['y','x','x','x'],self.actionTensor)
+        self.actionTensor = tensorConstr('yxxx',self.actionTensor)
 
 class netState():
     voltage = 0
