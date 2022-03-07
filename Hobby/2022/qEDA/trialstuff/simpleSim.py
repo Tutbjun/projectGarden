@@ -5,36 +5,22 @@ import time
 from PIL import Image,ImageTk
 import math
 from os import path
-import collections
 
 from matplotlib.pyplot import axis
 
 import UI
 import numpy as np
-from copy import copy , deepcopy
+from copy import copy
 from numba import jit
 
 #TODO: fix that nets have infinete recursions of itself
 #TODO: add log with warning of when the simulation needs smaller dt and make it so that sim redoes with smaller dt
 #TODO: try to use numpy tensorproducts instead
 
-
 #config
 class config():
     bufferCount = 100
-    dV = 10**-3
-
-def tensorConstr(axi, arrayLike = None, shape = None):
-    #timer = np.zeros(11)
-    #timer[0] = time.time()
-    t = tensor(axi, arrayLike, shape)
-    #timer[1] = time.time()
-    if hasattr(t.arr, "__len__"):
-        #timer[2] = time.time()
-        return t
-    else:
-        #timer[2] = time.time()
-        return t.arr
+    dV = 10**-5
 
 class tensor():
     axi = ''
@@ -53,51 +39,6 @@ class tensor():
             raise ValueError
         self.axi = axi
         self.shape = self.arr.shape
-
-"""def tensorMult(T1,T2):
-    arr = T1.arr * T2
-    return tensorConstr(T1.axi[0],arr)"""
-
-def tensorMult(T1,T2):
-    arr = T1 * T2
-    return tensorConstr(T1[0],arr)
-
-def tensorSum(tensorList):
-    return np.sum(tensorList,axis=0)
-    inIsFloat = False
-    try:
-        float(tensorList[0])
-        inIsFloat = True
-    except:
-        pass
-    if inIsFloat:
-        return np.sum(tensorList)
-    else:
-        if len(tensorList) == 1:
-            return tensorList[0]
-        shp = tensorList[0].shape()
-        sumArr = np.zeros((len(tensorList),*shp))
-        for i in range(0,len(tensorList)):
-            sumArr[i] = tensorList[i].arr
-        return sumArr.sum(axis=0)
-
-"""def tensorSum(tensorList):
-    inIsFloat = False
-    try:
-        float(tensorList[0])
-        inIsFloat = True
-    except:
-        pass
-    if inIsFloat:
-        return np.sum(tensorList)
-    else:
-        if len(tensorList) == 1:
-            return tensorList[0]
-        shp = tensorList[0].shape()
-        sumArr = np.zeros((len(tensorList),*shp))
-        for i in range(0,len(tensorList)):
-            sumArr[i] = tensorList[i].arr
-        return sumArr.sum(axis=0)"""
 
 def tensorOpperation(T1,T1axi,T2):
     if bool(T1axi):
@@ -118,103 +59,6 @@ def tensorOpperation(T1,T1axi,T2):
             return np.asarray(opList)
     else:
         return T1*T2
-
-
-    
-    """#inIsTensor = False
-
-    #try:
-    #    T1axi[0]
-
-    return np.matmul(T1,T2)
-    try:
-        float(T1)
-        try:
-            float(T2)
-            return T2*T1
-        except:
-            return tensorMult(T2,T1)
-    except:
-        try:
-            float(T2)
-            return tensorMult(T1,T2)
-        except:
-            pass
-    multList = [0]*T1.shape[0]
-    for i in range(len(T1)):
-        multList[i] = tensorOpperation(T1[i],T1axi[1:],T2[i],T2axi[1:])
-    if T1axi[0] == 'x':
-        return np.sum(multList,axis=0)
-    elif T1axi[0] == 'y':
-        try:
-            multList[0][1]
-            return multList,'y'+multList[0].axi
-        except:
-            return multList,'y'"""
-
-"""def tensorOpperation(T1,T2):
-    #timer = np.zeros(11)
-    #timer[0] = time.time()
-    try:
-        float(T1)
-        try:
-            float(T2)
-            return T2*T1
-        except:
-            return tensorMult(T2,T1)
-    except:
-        try:
-            float(T2)
-            return tensorMult(T1,T2)
-        except:
-            pass
-    #timer[1] = time.time()
-    multList = [0]*T1.shape[0]
-    #timer[2] = time.time()
-    for i in range(len(T1.arr)):
-        if len(T2.arr) == 1:
-            multList[i] = tensorOpperation(tensorConstr(T1.axi[1:],T1.arr[i]),tensorConstr(T2.axi[1:],T2.arr[0]))
-        else:
-            multList[i] = tensorOpperation(tensorConstr(T1.axi[1:],T1.arr[i]),tensorConstr(T2.axi[1:],T2.arr[i]))
-    #timer[3] = time.time()
-    if T1.axi[0] == 'x':
-        return tensorSum(multList)
-    elif T1.axi[0] == 'y':
-        try:
-            multList[0].axi
-            return tensorConstr('y'+multList[0].axi,multList)
-        except:
-            return tensorConstr('y',multList)"""
-
-"""def pseudoTensorOpperation(T1, T2):
-    multList = []
-    try:
-        float(T1)
-        try:
-            float(T2)
-            return T2*T1
-        except:
-            return tensorMult(T2,T1)
-    except:
-        try:
-            float(T2)
-            return tensorMult(T1,T2)
-        except:
-            pass
-    if T1.axis == T2.axis:# or len(T1.arr) != len(T2.arr):
-        raise ValueError
-    for i in range(len(T1.arr)):
-        if len(T2.arr) == 1:
-            multList.append(pseudoTensorOpperation(T1.arr[i],T2.arr[0]))
-        else:
-            multList.append(pseudoTensorOpperation(T1.arr[i],T2.arr[i]))
-    if T1.axis == 'x':
-        return pseudoTensorSum(multList)
-    elif T1.axis == 'y':
-        return pseudoTensor(['y'],multList)
-    else:
-        raise ValueError"""
-
 
 class circuitSim():
     components = []
@@ -306,6 +150,7 @@ class circuitSim():
             for i,dV in enumerate(dVs):
                 self.nets[i].updateBufferWithV(dV,dt)
             t += dt
+        print("done 👏")
             
 
     def prepNetTensor(self):
