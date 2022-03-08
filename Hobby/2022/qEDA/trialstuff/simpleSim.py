@@ -5,145 +5,60 @@ import time
 from PIL import Image,ImageTk
 import math
 from os import path
+
+from matplotlib.pyplot import axis
+
 import UI
 import numpy as np
-from copy import copy , deepcopy
+from copy import copy
+from numba import jit
 
 #TODO: fix that nets have infinete recursions of itself
 #TODO: add log with warning of when the simulation needs smaller dt and make it so that sim redoes with smaller dt
-
+#TODO: try to use numpy tensorproducts instead
 
 #config
 class config():
-    dt = 5*10**-8
     bufferCount = 100
-    dV = 10**-1
+    dV = 10**-5
 
-class pseudoTensor():
-    axis = ''
-    arr = np.array([])
+class tensor():
+    axi = ''
+    arr = []
+    shape = ()
     def __init__(self, axi, arrayLike = None, shape = None):
-        if str(type(arrayLike)) == "<class '__main__.pseudoTensor'>":
-            self.arr = arrayLike.arr
-            self.axis = arrayLike.axis
-            return
-        inIsArr = False
-        try:
-            if len(np.asarray(arrayLike)) > 0:
-                inIsArr = True
-        except:
-            pass
-        if inIsArr and not shape:
-            arr = []
-            for e in arrayLike:
-                try:
-                    float(e)
-                    arr.append(e)
-                except:
-                    arr.append(pseudoTensor(axi[1:],e))
-            arr = np.asarray(arr)
-            self.arr = arr
-            self.axis = axi[0]
-        elif inIsArr and shape:
+        if shape:
+            self.arr = np.zeros(shape)
+        elif str(type(arrayLike)) != "<class 'NoneType'>":
+            try:
+                float(arrayLike)
+                self.arr = arrayLike
+            except:
+                self.arr = np.asarray(arrayLike)
+        if len(self.arr.shape) != len(axi):
             raise ValueError
-        elif shape:
-            arrElem = pseudoTensor(axi[1:],shape=list(shape)[1:])
-            try:
-                float(arrElem.arr)
-                if arrElem.arr == 0:
-                    arrElem = 0
-            except:
-                pass
-                
-            tempArr = []
-            for _ in range(shape[0]):
-                tempArr.append(deepcopy(arrElem))
-                """elemIsInt = False
-                try:
-                    int(arrElem)
-                    elemIsInt = True    
-                except:
-                    pass
-                if elemIsInt:
-                    tempArr.append()
-                else:
-                """    
-            self.arr = np.asarray(tempArr).copy()
-            self.axis = axi[0].lower()
-        else:
-            if arrayLike == None:
-                self.arr = 0
-            else:    
-                self.arr = arrayLike.copy()
-    def shape(self):
-        shp = tuple([len(self.arr)])
-        try: 
-            self.arr[0].arr
-        except:
-            return shp
-        try: 
-            float(self.arr[0])
-        except:
-            return (*shp,*self.arr[0].shape())
-        return shp
-    def multiplyBy(self,val):
-        for i,_ in enumerate(self.arr):
-            try:
-                self.arr[i] *= val
-            except:
-                self.arr[i].multiplyBy(val)
+        self.axi = axi
+        self.shape = self.arr.shape
 
-def tensorMult(T1,T2):
-    arr = T1.arr * T2
-    return pseudoTensor([T1.axis],arr)
-
-def tensorSum(tensorList):
-    inIsFloat = False
-    try:
-        float(tensorList[0])
-        inIsFloat = True
-    except:
-        pass
-    if inIsFloat:
-        return np.sum(tensorList)
+def tensorOpperation(T1,T1axi,T2):
+    if bool(T1axi):
+        opList = [0] * len(T1)
+        #axiList = [0] * len(T1)
+        multiT2 = True
+        if len(T2) == 1:
+            multiT2 = False
+        for i in range(len(T1)):
+            if multiT2:
+                j = i
+            else:
+                j = 0
+            opList[i] = tensorOpperation(T1[i],T1axi[1:],T2[j])
+        if T1axi[0] == 'x':
+            return np.sum(opList)
+        if T1axi[0] == 'y':
+            return np.asarray(opList)
     else:
-        if len(tensorList) == 1:
-            return tensorList[0]
-        shp = tensorList[0].shape()
-        sumArr = np.zeros((len(tensorList),*shp))
-        for i in range(0,len(tensorList)):
-            sumArr[i] = tensorList[i].arr
-        return sumArr.sum(axis=0)
-
-def tensorOpperation(T1, T2):
-    multList = []
-    try:
-        float(T1)
-        try:
-            float(T2)
-            return T2*T1
-        except:
-            return tensorMult(T2,T1)
-    except:
-        try:
-            float(T2)
-            return tensorMult(T1,T2)
-        except:
-            pass
-    if T1.axis == T2.axis:# or len(T1.arr) != len(T2.arr):
-        raise ValueError
-    for i in range(len(T1.arr)):
-        if len(T2.arr) == 1:
-            multList.append(tensorOpperation(T1.arr[i],T2.arr[0]))
-        else:
-            multList.append(tensorOpperation(T1.arr[i],T2.arr[i]))
-    if T1.axis == 'x':
-        return tensorSum(multList)
-    elif T1.axis == 'y':
-        return pseudoTensor(['y'],multList)
-    else:
-        raise ValueError
-
+        return T1*T2
 
 class circuitSim():
     components = []
@@ -171,21 +86,13 @@ class circuitSim():
 
     def mergeNets(self,toMerge,componentsReferences=None):
         newId = min(toMerge)
-        newNet = self.nets[newId]
-        
+        newNet = copy(self.nets[newId])
         if componentsReferences:
             for cr in componentsReferences:
                 self.components[cr[0]].connections[cr[1]] = newNet.id
         else:
             raise NotImplementedError
-        for i in range(len(self.nets[toMerge[0]].stateBuffer)):
-            avg = netState(0,0)
-            for n in toMerge:
-                avg.voltage += self.nets[n].stateBuffer[i].voltage
-                avg.dVoltage += self.nets[n].stateBuffer[i].dVoltage
-            avg.dVoltage /= len(toMerge)
-            avg.voltage /= len(toMerge)
-            newNet.stateBuffer[i] = avg
+        newNet.stateBuffer = (self.nets[toMerge[0]].stateBuffer+self.nets[toMerge[1]].stateBuffer)/2
         self.nets[newNet.id] = newNet
         for n in toMerge:
             if n != newNet.id:
@@ -210,75 +117,56 @@ class circuitSim():
             self.renameNet(k,i)
     def simulate(self,simTime):
         t = 0
-        timerAvgs = []
+        dt = 1
+        numbr = 0
         while t < simTime:
-            #print([e.statePrint() for e in self.nets.values()])
-            timer = np.zeros(11)
-            timer[0] = time.time()
-            nT = self.prepNetTensor()#netTensor#! improve time
-            timer[1] = time.time()
-            ncTs = pseudoTensor(['y'],np.asarray([0]*len(nT.arr[0].arr),dtype=np.float32))#netCurrentTensors
-            timer[2] = time.time()
-            for c in self.components:#!improve time
-                timer2 = np.zeros(4)
-                timer2[0] = time.time()
-                nTC = pseudoTensor(['x','y'],[nT.arr[0].arr[c.connections]])#netTensorComponent
-                timer2[1] = time.time()
-                change = tensorOpperation(c.actionTensor,nTC)
-                timer2[2] = time.time()
-                for i,old in enumerate(ncTs.arr[c.connections]):
+            if numbr % 100 == 0:
+                print([e.statePrint() for e in self.nets.values()])
+            nT = self.prepNetTensor()#netTensor
+            nCV = np.zeros(len(nT[0]))#netCurrentVector
+            for c in self.components:
+                nTCa = np.array([nT[0][c.connections]])
+                axi = 'yxyxyx'
+                change = tensorOpperation(c.actionTensor,axi,nTCa)
+                for i,old in enumerate(nCV[c.connections]):
                     j = c.connections[i]
-                    ncTs.arr[j] = tensorSum([old,change.arr[i]])
-                timer2[3] = time.time()
-                df = np.diff(timer2)
-                print(df)
-            timer[3] = time.time()
+                    nCV[j] = np.sum([old,change[i]],axis=0)
             Cs = np.asarray([self.nets[k]._capacitance for k in self.nets.keys()])
-            timer[4] = time.time()
             for c in self.components:
                 for i,j in enumerate(c.connections):
                     Cs[j] += c.pinCapacitances[i]
-            timer[5] = time.time()
-            dVdts = ncTs.arr/Cs
-            timer[6] = time.time()
-            dVs = config.dt*dVdts
-            timer[7] = time.time()
+            dVdts = nCV/Cs
+            dVs = dt*dVdts
+            numbr += 1
             if max(abs(dVs)) > config.dV:
-                #!log issue
-                #! or redo sim with smaller dt
-                print("max dV exceeded...")
-            timer[8] = time.time()
+                print("max dV exceeded, redoing loop...")
+                print(f"dt = {dt}")
+                dt /= 2
+                continue
+            elif max(abs(dVs)) < config.dV/10:
+                print("min dV dexceeded, doing larger steps...")
+                print(f"dt = {dt}")
+                dt *= 2
             for i,dV in enumerate(dVs):
-                self.nets[i].updateBufferWithV(dV)
-            timer[9] = time.time()
-            t += config.dt
-            timer[10] = time.time()
-            df = np.diff(timer)
-            timerAvgs.append(df)
-            print(np.mean(np.asarray(timerAvgs), axis=0))
-    def getNetTensor(self):
-        arr = np.zeros((len(self.nets.keys()),self.bufferCount,2))
-        for i,k in enumerate(self.nets.keys()):
-            n = self.nets[k]
-            for j in range(self.bufferCount):
-                arr[i][j] = n.stateBuffer[j].asarray()
-        shape = arr.shape
-        newArr = list(arr)
-        for i in range(len(arr)):
-            newArr[i] = np.transpose(arr[i])
-        arr = np.asarray(newArr)
-        arr = np.reshape(arr,(1,shape[0],shape[2],shape[1]))
-        return arr
+                self.nets[i].updateBufferWithV(dV,dt)
+            t += dt
+        print("done 👏")
+            
+
     def prepNetTensor(self):
-        nets = self.getNetTensor()
-        newTensor = pseudoTensor(['x','y','y','y'],shape=(1,len(self.nets),6,self.bufferCount))
-        for i,n in enumerate(nets[0]):
-            for j in range(3):
-                newTensor.arr[0].arr[i].arr[j].arr = np.power(n[0],j)
-                newTensor.arr[0].arr[i].arr[j+3].arr = np.power(n[1],j)
-        return newTensor
-    def updateNetsByVector():
-        return
+        tensor = np.zeros((1,len(self.nets),1,6,1,self.bufferCount))
+        for i,n in enumerate(self.nets.values()):
+            transposed = np.transpose(n.stateBuffer)
+            tensor[0][i][0][0][0] = np.ones(transposed[0].shape)
+            tensor[0][i][0][1][0] = transposed[0]
+            tensor[0][i][0][2][0] = np.multiply(transposed[0],transposed[0])
+            tensor[0][i][0][3][0] = tensor[0][i][0][0][0]
+            tensor[0][i][0][4][0] = transposed[1]
+            tensor[0][i][0][5][0] = np.multiply(transposed[1],transposed[0])
+        #tensor = np.array([tensor])
+        #s = list(tensor.shape)
+        #tensor = np.reshape(tensor,s[:2]+[1]+[s[2]]+[1]+[s[3]])
+        return tensor
     def _scheduleNewNets(self,mode=None):
         if mode:
             self._newNetsSchedule[mode] = True
@@ -342,16 +230,9 @@ class component(circuitSim):
         self._updateIcon()
     def _loadModelTensor(self,name):
         self.actionTensor = np.load(path.join(path.dirname(__file__),'componentModels',f'{name}.npy'))
-        self.actionTensor = pseudoTensor(['y','x','x','x'],self.actionTensor)
-
-class netState():
-    voltage = 0
-    dVoltage = 0
-    def __init__(self, V=0, dV=0):
-        self.voltage = V
-        self.dVoltage = dV
-    def asarray(self):
-        return np.array([self.voltage,self.dVoltage],dtype=np.float64)
+        #self.actionTensor = tensorConstr('yxxx',self.actionTensor)
+        s = list(self.actionTensor.shape)
+        self.actionTensor = np.reshape(self.actionTensor,s[:2]+[1]+[s[2]]+[1]+[s[3]])
 
 class net(circuitSim):
     _capacitance = 10**-12
@@ -367,22 +248,20 @@ class net(circuitSim):
                 self.id = id
                 return
         self.id = len(takenIds)
-        self.stateBuffer = np.full((bufferCount),netState())
+        self.stateBuffer = np.zeros((bufferCount,2))
 
-    def updateBufferWithV(self,dV,dt=config.dt):
-        V = self.stateBuffer[0].voltage + dV
+    def updateBufferWithV(self,dV,dt):
+        V = self.stateBuffer[0][0] + dV
         dVdt = dV/dt
-        nS = netState(V,dVdt)
-        self.stateBuffer = np.insert(self.stateBuffer,0,nS)[:-1]
+        nS = np.array([V,dVdt])
+        self.stateBuffer = np.insert(self.stateBuffer,0,nS,axis=0)[:-1]
 
     def cleanBuffer(self):
         for i in range(len(self.stateBuffer),self.bufferCount,-1):
             self.stateBuffer[i].pop(i)
 
     def statePrint(self):
-        vals = []
-        vals.append(self.stateBuffer[0].voltage)
-        vals.append(self.stateBuffer[0].dVoltage)
+        vals = copy(self.stateBuffer[0])
         vals = ['{:.10f}'.format(round(v,10)) for v in vals]
         vals[0] = f'{vals[0]}V'
         vals[1] = f'{vals[1]}V/s'
@@ -452,7 +331,7 @@ def main():
     c.components[-1].rotateBy(90)
     c.addComponent(resistor, pos = (15,10), model='res1k')
     c.components[-1].rotateBy(90)
-    c.components[-1].resistance = 1000
+    #c.components[-1].resistance = 1000
     #c.addComponent(cCap, pos = (15,20), model='cap')
     #c.components[2].rotateBy(90)
     #c.components[2].capacitance = 10**(-5)
@@ -461,7 +340,7 @@ def main():
     c.addConnection([[0,0],[1,0]])
     c.addConnection([[1,1],[2,0]])
     #c.addConnection([[2,1],[3,0]])
-    c.renderCircuit()
+    #c.renderCircuit()
     c.simulate(0.01)
 
 if __name__ == '__main__':
